@@ -1,1 +1,66 @@
+name: Build Portable Release
 
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/build-portable-release.yml"
+
+jobs:
+  build-release:
+    runs-on: windows-2025-vs2026
+    env:
+      VCPKG_DEFAULT_TRIPLET: x64-windows-static
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Set up vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: e6ebaa9c3ca8fca90c63af62fc895c2486609580
+
+      - name: Configure
+        shell: pwsh
+        run: cmake --preset default
+
+      - name: Build Release
+        shell: pwsh
+        run: cmake --build --preset release --parallel
+
+      - name: Run Release tests
+        shell: pwsh
+        run: ctest --preset release --output-on-failure
+
+      - name: Assemble portable package
+        shell: pwsh
+        run: |
+          $source = Join-Path $PWD "build\bin\Release"
+          $package = Join-Path $PWD "portable\CorsixModStudio-DE-x64"
+
+          if (-not (Test-Path (Join-Path $source "ModStudioDE.exe"))) {
+            throw "ModStudioDE.exe was not produced in $source"
+          }
+
+          New-Item -ItemType Directory -Path $package -Force | Out-Null
+          Copy-Item -Path (Join-Path $source "*") -Destination $package -Recurse -Force
+
+          @"
+          Corsix's Mod Studio: Definitive Edition
+          Portable Windows x64 build
+          Source commit: $env:GITHUB_SHA
+          Build workflow: build-portable-release.yml
+          "@ | Set-Content -Path (Join-Path $package "BUILD_INFO.txt") -Encoding UTF8
+
+      - name: Upload portable Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: CorsixModStudio-DE-Windows-x64
+          path: portable/CorsixModStudio-DE-x64
+          if-no-files-found: error
+          compression-level: 9
+          retention-days: 30
